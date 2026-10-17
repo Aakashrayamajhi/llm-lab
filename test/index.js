@@ -1,36 +1,51 @@
 
 import express from "express";
-import cors from "cors";
-import llm from "./llm.js";
+import { config } from "dotenv";
+import { llm } from "./llm.js";
+
+config();
 
 const app = express();
+const port = process.env.PORT || 3000;
 
-app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-app.get("/send-ai", async (req, res) => {
+app.get("/health", (req, res) => {
+  return res.status(200).json({
+    message: "Everything is okay",
+    status: 200,
+  });
+});
+
+app.get("/ask-ai", async (req, res) => {
+  const prompt = req.query.prompt;
+
+  console.log('prompt:' , prompt)
+
+  if (typeof prompt !== "string" || !prompt.trim()) {
+    return res.status(400).json({
+      message: "Please send us a valid prompt",
+      status: 400,
+    });
+  }
+
   try {
-    const prompt = req.query.prompt;
+    const response = await llm(prompt);
+    console.log("response:" , response)
+    return res.status(200).json({
+      answer: response,
+      status: 200,
+    });
+  } catch (err) {
+    console.error("AI request failed:", err.message);
 
-    console.log(prompt)
-    if (!prompt || typeof prompt !== "string") {
-      return res.status(400).json({
-        error: "Please provide a prompt",
-      });
-    }
-
-    const answer = await llm(prompt);
-
-    res.json({ answer });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      error: "Failed to generate AI response",
+    return res.status(500).json({
+      message: "Failed to generate AI response",
+      status: 500,
     });
   }
 });
 
-app.listen(3000, () => {
-  console.log("Server is running on http://localhost:3000");
+app.listen(port, () => {
+  console.log(`Server is running at http://localhost:${port}`);
 });
