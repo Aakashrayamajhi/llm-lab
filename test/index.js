@@ -10,7 +10,33 @@ const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-app.get("/health", (req, res) => {
+ const apikey = 123
+
+app.get("/generate-apikey" , (req , res)=>{
+
+  res.send(apikey)
+})
+
+async function verifytoken(req , res , next){
+  const key = req.get("x-api-key")
+  console.log("api-key :" , key)
+ 
+  if(!key){
+     return res.status(401).json({
+        error: "API key required",
+      });
+  }
+  if(key !== apikey){
+    return res.status(401).json({
+      error : "hasais pagal"
+    })
+  }
+
+  next()
+}
+
+
+app.get("/health", verifytoken ,(req, res) => {
   return res.status(200).json({
     message: "Everything is okay",
     status: 200,
