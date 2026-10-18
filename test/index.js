@@ -17,6 +17,15 @@ app.get("/generate-apikey" , (req , res)=>{
   res.send(apikey)
 })
 
+
+
+app.get("/health",(req, res) => {
+  return res.status(200).json({
+    message: "Everything is okay",
+    status: 200,
+  });
+});
+
 async function verifytoken(req , res , next){
   const key = req.get("x-api-key")
   console.log("api-key :" , key)
@@ -35,13 +44,6 @@ async function verifytoken(req , res , next){
   next()
 }
 
-
-app.get("/health", verifytoken ,(req, res) => {
-  return res.status(200).json({
-    message: "Everything is okay",
-    status: 200,
-  });
-});
 
 app.get("/ask-ai", async (req, res) => {
   const prompt = req.query.prompt;

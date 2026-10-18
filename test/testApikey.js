@@ -1,10 +1,10 @@
 const response = await fetch(
-  "http://localhost:3000/health",
+    "http://localhost:3000/ask-ai?prompt=what%20is%20your%20name",
   {
     method: "GET",
     headers: {
-      "x-api-key": "1243"
-    }
+      "x-api-key": "123"
+    },
   }
 );
 
