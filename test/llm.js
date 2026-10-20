@@ -1,6 +1,8 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { config } from "dotenv";
 import mongoose from "mongoose";
+import * as fs from "fs";
 
 config();
 
@@ -10,10 +12,15 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GoogleGenAI,
 });
 
+const MODEL = "gemini-3.5-flash";
+const IMAGE_MODEL = "gemini-3-pro-image-preview";
+
+// Tool 1: Get solved DSA problems
 async function getproblemsolved() {
   return 500;
 }
 
+// Tool 2: Get a user's email from MongoDB
 async function getUserEmail(name) {
   const user = await mongoose.connection
     .collection("users")
@@ -22,11 +29,53 @@ async function getUserEmail(name) {
   return user ? user.email : "User not found";
 }
 
-const functionDecleration = [
+// Tool 3: Generate and save an image
+async function generateImage(prompt) {
+  const interaction = await ai.interactions.create({
+    model: IMAGE_MODEL,
+    input: prompt,
+    response_modalities: ["image"],
+  });
+
+  const outputs = interaction.outputs ?? [];
+
+  for (const output of outputs) {
+    if (output.type === "image" && output.data) {
+      const mimeType = output.mime_type || "image/png";
+
+      const extension =
+        mimeType === "image/jpeg" ? "jpg" :
+        mimeType === "image/webp" ? "webp" : "png";
+
+      const filename = `generated_image.${extension}`;
+
+      fs.writeFileSync(
+        filename,
+        Buffer.from(output.data, "base64")
+      );
+
+      console.log(`Generated image MIME type: ${mimeType}`);
+      console.log(`Image saved to: ${filename}`);
+
+      return {
+        success: true,
+        filename,
+        message: "Image generated and saved successfully.",
+      };
+    }
+  }
+
+  return {
+    success: false,
+    message: "No image was returned by the model.",
+  };
+}
+
+// All available tool declarations
+const functionDeclarations = [
   {
     name: "getproblemsolved",
-    description:
-      "This tool returns the number of problems solved by the user.",
+    description: "Returns the number of DSA problems solved by the user.",
     parameters: {
       type: "OBJECT",
       properties: {},
@@ -34,8 +83,7 @@ const functionDecleration = [
   },
   {
     name: "getUserEmail",
-    description:
-      "Returns the email address of a user based on their name.",
+    description: "Returns the email address of a user based on their name.",
     parameters: {
       type: "OBJECT",
       properties: {
@@ -47,56 +95,98 @@ const functionDecleration = [
       required: ["name"],
     },
   },
+  {
+    name: "generateImage",
+    description:
+      "Generates an image from a text prompt and saves it as a local file. Use when the user explicitly requests image creation.",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        prompt: {
+          type: "STRING",
+          description: "Detailed description of the image to generate.",
+        },
+      },
+      required: ["prompt"],
+    },
+  },
 ];
+
+const systemInstruction = `
+You are a DSA instructor with access to tools.
+
+- Answer questions about DSA, algorithms, problem-solving, and computer science.
+- If the user asks how many problems they have solved, call getproblemsolved.
+- If the user asks for a user's email by name, call getUserEmail.
+- If the user requests an image, call generateImage.
+- Use tool results to answer accurately.
+- For unrelated requests that do not involve an available tool,
+  politely explain that you specialize in DSA instruction.
+- Never invent tool results.
+`;
 
 export async function llm(prompt) {
   const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
+    model: MODEL,
     contents: prompt,
     config: {
-    systemInstruction: `
-You are a DSA (Data Structures and Algorithms) instructor.
-
-- Answer questions related to DSA, algorithms, problem-solving, and computer science concepts.
-- If the user asks how many problems they have solved, call the getproblemsolved tool.
-- If the user asks for a user's email address by name, call the getUserEmail tool.
-- Whenever a user's request matches an available tool, call the relevant tool and use its result to answer accurately.
-- For questions unrelated to DSA or the available tools, politely refuse and explain that you specialize in DSA instruction.
-- Never invent tool results or user information.
-`,
+      systemInstruction,
       tools: [
         {
-          functionDeclarations: functionDecleration,
+          functionDeclarations,
         },
       ],
     },
   });
 
-  const functioncalls = response.functionCalls ?? [];
+  const functionCalls = response.functionCalls ?? [];
 
-  for (const call of functioncalls) {
-    if (call.name === "getproblemsolved") {
-      const result = await getproblemsolved();
-
-      const finalresponse = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: `The user has solved ${result} problems. Answer the original question: ${prompt}`,
-      });
-
-      return finalresponse.text;
-    }
-
-    if (call.name === "getUserEmail") {
-      const result = await getUserEmail(call.args.name);
-
-      const finalresponse = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: `The user's email lookup result is: ${result}. Answer the original question: ${prompt}`,
-      });
-
-      return finalresponse.text;
-    }
+  // No tool call: return the normal model response.
+  if (functionCalls.length === 0) {
+    return response.text ?? "I couldn't generate a response.";
   }
 
-  return response.text;
+  // Execute the requested tools.
+  const toolResults = [];
+
+  for (const call of functionCalls) {
+    let result;
+
+    if (call.name === "getproblemsolved") {
+      result = await getproblemsolved();
+    } else if (call.name === "getUserEmail") {
+      result = await getUserEmail(call.args.name);
+    } else if (call.name === "generateImage") {
+      result = await generateImage(call.args.prompt);
+    } else {
+      result = { error: "Unknown tool." };
+    }
+
+    toolResults.push({
+      name: call.name,
+      result,
+    });
+  }
+
+  // Ask Gemini to produce a user-friendly response
+  // based on the actual tool results.
+  const finalResponse = await ai.models.generateContent({
+    model: MODEL,
+    contents: `
+Original user request:
+${prompt}
+
+Tool execution results:
+${JSON.stringify(toolResults)}
+
+Answer the original request using these results.
+For image generation, clearly state the filename where the image was saved.
+Never claim a tool succeeded if its result indicates failure.
+`,
+    config: {
+      systemInstruction,
+    },
+  });
+
+  return finalResponse.text ?? JSON.stringify(toolResults);
 }

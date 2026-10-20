@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice AI Agent</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div class="logo" aria-hidden="true">✦</div>
+      <div>
+        <h1>Voice AI</h1>
+        <p class="subtitle">Talk naturally. Get an answer out loud.</p>
+      </div>
+      <span id="apiStatus" class="status">Checking…</span>
+    </header>
+
+    <section id="chat" class="chat" aria-live="polite">
+      <div class="welcome" id="welcome">
+        <div class="welcome-icon">🎙️</div>
+        <h2>What would you like to talk about?</h2>
+        <p>Press the microphone and speak, or type a message below.</p>
+      </div>
+    </section>
+
+    <p id="statusText" class="status-text">Ready when you are.</p>
+
+    <form id="chatForm" class="composer">
+      <button type="button" id="micButton" class="mic-button" aria-label="Start voice input" title="Speak">
+        <span id="micIcon">🎙️</span>
+      </button>
+      <input id="messageInput" type="text" placeholder="Type a message…" autocomplete="off" maxlength="4000" />
+      <button type="submit" id="sendButton" class="send-button">Send</button>
+    </form>
+
+    <div class="controls">
+      <label class="toggle"><input type="checkbox" id="speakToggle" checked /> Speak answers aloud</label>
+      <button type="button" id="stopButton" class="text-button">Stop speaking</button>
+      <button type="button" id="clearButton" class="text-button">Clear chat</button>
+    </div>
+    <p class="note">Prototype: browser speech recognition may send audio to a browser speech service. Do not enter secrets or sensitive personal information.</p>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
