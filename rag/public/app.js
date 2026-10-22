@@ -42,7 +42,7 @@ uploadForm.addEventListener("submit", async (event) => {
   formData.append("pdf", file);
   uploadButton.disabled = true;
   uploadButton.textContent = "Processing PDF…";
-  setStatus("Extracting text, creating chunks, and indexing embeddings. Larger PDFs may take a while.");
+  setStatus("Extracting text, creating chunks, and storing them in Pinecone. Larger PDFs may take a while.");
 
   try {
     const response = await fetch("/api/upload", { method: "POST", body: formData });
@@ -54,7 +54,10 @@ uploadForm.addEventListener("submit", async (event) => {
     renderDocuments();
     setActiveDocument(data.document);
     clearMessages();
-    setStatus(`Ready: ${data.document.chunkCount} chunks indexed.`, "success");
+    setStatus(
+      `Stored ${data.document.chunkCount} chunks. New chunks may take about a minute to become searchable.`,
+      "success"
+    );
     fileInput.value = "";
     fileLabel.textContent = "Choose a PDF file";
   } catch (error) {
@@ -191,7 +194,11 @@ function appendMessage(role, text, sources = []) {
   const body = document.createElement("div");
   body.className = "message-text";
   body.textContent = text;
-  content.append(roleLabel, body);
+  if (role === "user") {
+    content.appendChild(body);
+  } else {
+    content.append(roleLabel, body);
+  }
 
   if (role === "assistant" && sources.length) {
     const details = document.createElement("details");
@@ -221,7 +228,9 @@ function appendMessage(role, text, sources = []) {
 
   wrapper.append(avatar, content);
   messages.appendChild(wrapper);
-  messages.scrollTop = messages.scrollHeight;
+  requestAnimationFrame(() => {
+    messages.scrollTop = messages.scrollHeight;
+  });
   return wrapper;
 }
 

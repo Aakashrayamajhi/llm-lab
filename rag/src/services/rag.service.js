@@ -1,16 +1,18 @@
 import { gemini, CHAT_MODEL } from "../config/gemini.js";
 import { retrieveRelevantChunks } from "./retrieval.service.js";
+import { logError, logInfo } from "../utils/logger.js";
 
-export async function answerFromPdf({ question, documentId }) {
+export async function answerFromPdf({ question, documentId, requestId }) {
   const trimmedQuestion = question.trim();
   if (!trimmedQuestion) throw new Error("Question cannot be empty.");
   if (!documentId) throw new Error("Upload/select a PDF first.");
 
-  const chunks = await retrieveRelevantChunks(trimmedQuestion, documentId);
+  const chunks = await retrieveRelevantChunks(trimmedQuestion, documentId, requestId);
 
   // A low score can be a useful warning, but scores vary by model and dataset.
   // The prompt below still requires the model to admit when evidence is absent.
   if (!chunks.length) {
+    logInfo("rag.no-context", { requestId, documentId });
     return {
       answer: "I couldn't find relevant information for that question in this PDF.",
       sources: []
@@ -18,7 +20,7 @@ export async function answerFromPdf({ question, documentId }) {
   }
 
   const context = chunks.map((chunk, index) =>
-    `[Source ${index + 1} | chunk ${chunk.chunkIndex} | similarity ${chunk.score.toFixed(3)}]\n${chunk.text}`
+    `[Source ${index + 1} | chunk ${chunk.chunkIndex} | score ${chunk.score.toFixed(3)}]\n${chunk.text}`
   ).join("\n\n---\n\n");
 
   const prompt = `
@@ -39,16 +41,38 @@ USER QUESTION:
 ${trimmedQuestion}
 `.trim();
 
-  const response = await gemini.models.generateContent({
+  logInfo("gemini.generate.start", {
+    requestId,
+    documentId,
     model: CHAT_MODEL,
-    contents: prompt,
-    config: {
-      temperature: 0.2
-    }
+    contextChunkCount: chunks.length,
+    contextCharacterCount: context.length,
+    promptCharacterCount: prompt.length
   });
+  const generationStartedAt = Date.now();
+  let response;
+  try {
+    response = await gemini.models.generateContent({
+      model: CHAT_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.2
+      }
+    });
+  } catch (error) {
+    logError("gemini.generate.failed", error, { requestId, documentId, model: CHAT_MODEL });
+    throw error;
+  }
 
   const answer = response.text?.trim();
   if (!answer) throw new Error("Gemini returned an empty answer.");
+  logInfo("gemini.generate.complete", {
+    requestId,
+    documentId,
+    model: CHAT_MODEL,
+    answerLength: answer.length,
+    durationMs: Date.now() - generationStartedAt
+  });
 
   return {
     answer,

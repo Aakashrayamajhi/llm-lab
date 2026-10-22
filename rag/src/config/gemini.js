@@ -10,10 +10,3 @@ export const gemini = new GoogleGenAI({
 
 export const CHAT_MODEL =
   process.env.GEMINI_CHAT_MODEL || "gemini-2.5-flash";
-
-export const EMBEDDING_MODEL =
-  process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001";
-
-export const EMBEDDING_DIMENSION = Number(
-  process.env.EMBEDDING_DIMENSION || 768
-);

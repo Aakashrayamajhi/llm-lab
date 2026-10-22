@@ -1,14 +1,30 @@
 import crypto from "node:crypto";
-import pdf from "pdf-parse";
+import { createRequire } from "node:module";
 import { chunkText } from "../utils/chunkText.js";
-import { embedTexts } from "./embedding.service.js";
+import { logError, logInfo } from "../utils/logger.js";
 import { pineconeIndex } from "../config/pinecone.js";
 
+const require = createRequire(import.meta.url);
+const pdf = require("pdf-parse");
 const UPSERT_BATCH_SIZE = 50;
 
-export async function ingestPdf(buffer, originalName) {
-  const parsed = await pdf(buffer);
+export async function ingestPdf(buffer, originalName, requestId) {
+  const parseStartedAt = Date.now();
+  logInfo("upload.pdf.parse.start", { requestId, sizeBytes: buffer.length });
+  let parsed;
+  try {
+    parsed = await pdf(buffer);
+  } catch (error) {
+    logError("upload.pdf.parse.failed", error, { requestId });
+    throw error;
+  }
   const extractedText = parsed.text?.trim();
+  logInfo("upload.pdf.parse.complete", {
+    requestId,
+    durationMs: Date.now() - parseStartedAt,
+    pageCount: parsed.numpages,
+    characterCount: extractedText?.length || 0
+  });
 
   if (!extractedText) {
     throw new Error(
@@ -18,31 +34,51 @@ export async function ingestPdf(buffer, originalName) {
 
   const chunks = chunkText(extractedText);
   if (!chunks.length) throw new Error("Could not create text chunks from this PDF.");
+  logInfo("upload.chunk.complete", {
+    requestId,
+    chunkCount: chunks.length,
+    chunkLengths: chunks.map((chunk) => chunk.length)
+  });
 
   const documentId = crypto.randomUUID();
   const safeName = originalName.replace(/[^\w.\- ()]/g, "_").slice(0, 180);
-  const vectors = [];
+  const documents = chunks.map((chunk, i) => ({
+    _id: `${documentId}-chunk-${i}`,
+    title: safeName,
+    chunk_text: chunk,
+    documentId,
+    fileName: safeName,
+    chunkIndex: i
+  }));
 
-  // Embed each chunk. Keep a stable ID so chunks can be traced in Pinecone.
-  const embeddings = await embedTexts(chunks, "RETRIEVAL_DOCUMENT");
-
-  for (let i = 0; i < chunks.length; i++) {
-    vectors.push({
-      id: `${documentId}-chunk-${i}`,
-      values: embeddings[i],
-      metadata: {
+  for (let i = 0; i < documents.length; i += UPSERT_BATCH_SIZE) {
+    const batch = documents.slice(i, i + UPSERT_BATCH_SIZE);
+    const batchNumber = Math.floor(i / UPSERT_BATCH_SIZE) + 1;
+    const batchStartedAt = Date.now();
+    logInfo("pinecone.documents.upsert.start", {
+      requestId,
+      documentId,
+      batchNumber,
+      batchSize: batch.length
+    });
+    try {
+      const result = await pineconeIndex.documents.upsert({ documents: batch });
+      logInfo("pinecone.documents.upsert.complete", {
+        requestId,
         documentId,
-        fileName: safeName,
-        chunkIndex: i,
-        text: chunks[i]
-      }
-    });
-  }
-
-  for (let i = 0; i < vectors.length; i += UPSERT_BATCH_SIZE) {
-    await pineconeIndex.upsert({
-      records: vectors.slice(i, i + UPSERT_BATCH_SIZE)
-    });
+        batchNumber,
+        upsertedCount: result.upsertedCount,
+        durationMs: Date.now() - batchStartedAt
+      });
+    } catch (error) {
+      logError("pinecone.documents.upsert.failed", error, {
+        requestId,
+        documentId,
+        batchNumber,
+        batchSize: batch.length
+      });
+      throw error;
+    }
   }
 
   return {

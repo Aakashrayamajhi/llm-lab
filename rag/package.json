@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
-    "@pinecone-database/pinecone": "^6.1.2",
+    "@pinecone-database/pinecone": "^9.1.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
