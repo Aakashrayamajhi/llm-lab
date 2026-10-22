@@ -1,7 +1,18 @@
+
+import mongoose from "mongoose";
+
 export default async function info() {
-  const data = await mongoose.connection
+  if (mongoose.connection.readyState !== 1) {
+    throw new Error("MongoDB is not connected.");
+  }
+
+  const resume = await mongoose.connection
     .collection("info")
     .findOne({ ownerId: "aakash-rayamajahi" });
 
-  return data;
+  if (!resume) {
+    throw new Error("Resume document was not found.");
+  }
+
+  return resume;
 }

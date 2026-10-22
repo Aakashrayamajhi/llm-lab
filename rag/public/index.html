@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF RAG · Gemini + Pinecone</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">R</div>
+        <div>
+          <h1>Paperwise</h1>
+          <p>PDF-only AI assistant</p>
+        </div>
+      </div>
+
+      <section class="upload-card">
+        <span class="eyebrow">YOUR KNOWLEDGE BASE</span>
+        <h2>Chat with a PDF</h2>
+        <p class="muted">Upload a document. Answers are grounded only in the selected PDF.</p>
+
+        <form id="upload-form">
+          <label class="drop-zone" for="pdf-file" id="drop-zone">
+            <span class="upload-icon">↑</span>
+            <strong id="file-label">Choose a PDF file</strong>
+            <small>PDF only · up to configured size limit</small>
+            <input id="pdf-file" name="pdf" type="file" accept="application/pdf,.pdf" required />
+          </label>
+          <button class="primary-button full" id="upload-button" type="submit">Upload and process</button>
+        </form>
+        <p id="upload-status" class="status" aria-live="polite"></p>
+      </section>
+
+      <section class="documents-section">
+        <div class="section-heading">
+          <span class="eyebrow">UPLOADED DOCUMENTS</span>
+          <span id="document-count" class="count">0</span>
+        </div>
+        <div id="document-list" class="document-list">
+          <p class="empty-docs">Your PDFs will appear here.</p>
+        </div>
+      </section>
+
+      <div class="sidebar-footer">
+        <span class="status-dot"></span>
+        <span>Gemini + Pinecone</span>
+        <span class="footer-spacer"></span>
+        <span>Local demo</span>
+      </div>
+    </aside>
+
+    <section class="chat-panel">
+      <header class="chat-header">
+        <div>
+          <span class="eyebrow">DOCUMENT ASSISTANT</span>
+          <h2 id="active-title">Select a PDF to begin</h2>
+          <p id="active-subtitle">Upload a document, then ask questions about its contents.</p>
+        </div>
+        <div class="privacy-pill"><span class="status-dot"></span> PDF-scoped retrieval</div>
+      </header>
+
+      <div id="messages" class="messages">
+        <div class="welcome" id="welcome">
+          <div class="welcome-symbol">✳</div>
+          <h2>Your document, understood.</h2>
+          <p>Upload a PDF and ask a question. I’ll retrieve relevant passages and answer from those passages only.</p>
+          <div class="suggestions">
+            <button type="button" class="suggestion" data-question="Summarize this PDF in simple terms.">Summarize this PDF</button>
+            <button type="button" class="suggestion" data-question="What are the key points in this document?">Find key points</button>
+            <button type="button" class="suggestion" data-question="What important dates, names, or numbers are mentioned?">Find dates and numbers</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-wrap">
+        <form id="chat-form" class="composer">
+          <textarea id="question" rows="1" placeholder="Upload and select a PDF first…" disabled></textarea>
+          <button id="send-button" type="submit" disabled aria-label="Send message">↑</button>
+        </form>
+        <p class="disclaimer">Answers can be wrong. Check the cited excerpts in your PDF for important decisions.</p>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
