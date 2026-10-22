@@ -1,18 +1,16 @@
 import { gemini, CHAT_MODEL } from "../config/gemini.js";
 import { retrieveRelevantChunks } from "./retrieval.service.js";
-import { logError, logInfo } from "../utils/logger.js";
 
-export async function answerFromPdf({ question, documentId, requestId }) {
+export async function answerFromPdf({ question, documentId }) {
   const trimmedQuestion = question.trim();
   if (!trimmedQuestion) throw new Error("Question cannot be empty.");
   if (!documentId) throw new Error("Upload/select a PDF first.");
 
-  const chunks = await retrieveRelevantChunks(trimmedQuestion, documentId, requestId);
+  const chunks = await retrieveRelevantChunks(trimmedQuestion, documentId);
 
   // A low score can be a useful warning, but scores vary by model and dataset.
   // The prompt below still requires the model to admit when evidence is absent.
   if (!chunks.length) {
-    logInfo("rag.no-context", { requestId, documentId });
     return {
       answer: "I couldn't find relevant information for that question in this PDF.",
       sources: []
@@ -41,38 +39,16 @@ USER QUESTION:
 ${trimmedQuestion}
 `.trim();
 
-  logInfo("gemini.generate.start", {
-    requestId,
-    documentId,
+  const response = await gemini.models.generateContent({
     model: CHAT_MODEL,
-    contextChunkCount: chunks.length,
-    contextCharacterCount: context.length,
-    promptCharacterCount: prompt.length
+    contents: prompt,
+    config: {
+      temperature: 0.2
+    }
   });
-  const generationStartedAt = Date.now();
-  let response;
-  try {
-    response = await gemini.models.generateContent({
-      model: CHAT_MODEL,
-      contents: prompt,
-      config: {
-        temperature: 0.2
-      }
-    });
-  } catch (error) {
-    logError("gemini.generate.failed", error, { requestId, documentId, model: CHAT_MODEL });
-    throw error;
-  }
 
   const answer = response.text?.trim();
   if (!answer) throw new Error("Gemini returned an empty answer.");
-  logInfo("gemini.generate.complete", {
-    requestId,
-    documentId,
-    model: CHAT_MODEL,
-    answerLength: answer.length,
-    durationMs: Date.now() - generationStartedAt
-  });
 
   return {
     answer,

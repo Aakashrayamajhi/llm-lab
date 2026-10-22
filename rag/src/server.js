@@ -1,7 +1,6 @@
 import "dotenv/config";
 import net from "node:net";
 import app from "./app.js";
-import { logInfo } from "./utils/logger.js";
 
 const requestedPort = Number(process.env.PORT || 5001);
 
@@ -30,11 +29,4 @@ function getAvailablePort(port) {
 
 const port = await getAvailablePort(requestedPort);
 
-app.listen(port, () => {
-  logInfo("server.ready", {
-    url: `http://localhost:${port}`,
-    nodeVersion: process.version,
-    pineconeIndex: process.env.PINECONE_INDEX || "pdf-rag-index",
-    geminiModel: process.env.GEMINI_CHAT_MODEL || "gemini-2.5-flash"
-  });
-});
+app.listen(port);

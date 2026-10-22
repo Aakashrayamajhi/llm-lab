@@ -2,7 +2,6 @@ import { Router } from "express";
 import multer from "multer";
 import { ingestPdf } from "../services/document.service.js";
 import { answerFromPdf } from "../services/rag.service.js";
-import { logError, logInfo } from "../utils/logger.js";
 
 const router = Router();
 const maxFileSizeMb = Number(process.env.MAX_FILE_SIZE_MB || 20);
@@ -24,42 +23,25 @@ const upload = multer({
 });
 
 router.post("/upload", upload.single("pdf"), async (req, res, next) => {
-  const requestId = req.requestId;
   try {
     if (!req.file) {
       return res.status(400).json({ error: "Choose a PDF file to upload." });
     }
 
-    logInfo("upload.received", {
-      requestId,
-      fileName: req.file.originalname,
-      sizeBytes: req.file.size,
-      mimeType: req.file.mimetype
-    });
     const document = await ingestPdf(
       req.file.buffer,
-      req.file.originalname,
-      requestId
+      req.file.originalname
     );
-    logInfo("upload.complete", {
-      requestId,
-      documentId: document.documentId,
-      pageCount: document.pageCount,
-      chunkCount: document.chunkCount,
-      characterCount: document.characterCount
-    });
     res.status(201).json({
       message: "PDF processed and indexed successfully.",
       document
     });
   } catch (error) {
-    logError("upload.failed", error, { requestId });
     next(error);
   }
 });
 
 router.post("/chat", async (req, res, next) => {
-  const requestId = req.requestId;
   try {
     const { question, documentId } = req.body || {};
     if (typeof question !== "string" || !question.trim()) {
@@ -69,21 +51,9 @@ router.post("/chat", async (req, res, next) => {
       return res.status(400).json({ error: "documentId is required. Upload a PDF first." });
     }
 
-    logInfo("chat.received", {
-      requestId,
-      documentId,
-      questionLength: question.trim().length
-    });
-    const result = await answerFromPdf({ question, documentId, requestId });
-    logInfo("chat.complete", {
-      requestId,
-      documentId,
-      answerLength: result.answer.length,
-      sourceCount: result.sources.length
-    });
+    const result = await answerFromPdf({ question, documentId });
     res.json(result);
   } catch (error) {
-    logError("chat.failed", error, { requestId });
     next(error);
   }
 });
