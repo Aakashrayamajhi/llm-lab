@@ -15,7 +15,7 @@ server.tool(
     problem: z.string().optional().describe("The user's simple problem, if provided")
   },
   async () => ({
-    content: [{ type: "text", text: "500" }]
+    content: [{ type: "text", text: "you have solved 500 problems" }]
   })
 );
 

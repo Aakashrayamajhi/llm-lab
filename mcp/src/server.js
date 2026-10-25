@@ -1,7 +1,12 @@
+
+
 import "dotenv/config";
 import express from "express";
 import { GoogleGenAI } from "@google/genai";
 import { createMcpClient } from "./mcp-client.js";
+import { config } from "dotenv";
+
+config()
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -38,7 +43,7 @@ function mcpToolsToGeminiDeclarations(mcpTools) {
 
 app.get("/ask", async (req, res) => {
   const prompt = typeof req.query.prompt === "string" ? req.query.prompt.trim() : "";
-
+  console.log("prompt:" , prompt)
   if (!prompt) {
     return res.status(400).json({
       error: "Missing required query parameter: prompt",

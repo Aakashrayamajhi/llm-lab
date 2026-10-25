@@ -1,0 +1,338 @@
+// server.js
+
+import "dotenv/config";
+import express from "express";
+import { GoogleGenAI } from "@google/genai";
+import { createMcpClient } from "./mcp-client.js";
+import { config } from "dotenv";
+
+config()
+
+const app = express();
+const port = Number(process.env.PORT || 3000);
+const model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+
+app.use(express.json());
+
+if (!process.env.GEMINI_API_KEY) {
+  console.warn("GEMINI_API_KEY is missing. Add it to .env before calling /ask.");
+}
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+
+function getTextFromMcpResult(result) {
+  if (result?.isError) {
+    throw new Error(result.content?.map((item) => item.text || "").join("\n") || "MCP tool failed");
+  }
+  return (result?.content || [])
+    .map((item) => item.type === "text" ? item.text : JSON.stringify(item))
+    .join("\n");
+}
+
+function mcpToolsToGeminiDeclarations(mcpTools) {
+  return mcpTools.map((tool) => ({
+    name: tool.name,
+    description: tool.description || `MCP tool: ${tool.name}`,
+    parameters: tool.inputSchema || {
+      type: "OBJECT",
+      properties: {},
+      required: []
+    }
+  }));
+}
+
+app.get("/ask", async (req, res) => {
+  const prompt = typeof req.query.prompt === "string" ? req.query.prompt.trim() : "";
+  console.log("prompt:" , prompt)
+  if (!prompt) {
+    return res.status(400).json({
+      error: "Missing required query parameter: prompt",
+      example: "/ask?prompt=What%20is%20the%20weather%20in%20Kathmandu"
+    });
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({
+      error: "GEMINI_API_KEY is not configured. Copy .env.example to .env and add your API key."
+    });
+  }
+
+  let mcp;
+  try {
+    // Start a real custom MCP server and connect this API's MCP client to it.
+    mcp = await createMcpClient();
+
+    // Discover tools from the MCP server at runtime, rather than hardcoding tool definitions here.
+    const { tools: discoveredTools } = await mcp.client.listTools();
+    const declarations = mcpToolsToGeminiDeclarations(discoveredTools);
+
+    const contents = [{ role: "user", parts: [{ text: prompt }] }];
+    const functionResponses = [];
+    const maxToolRounds = 5;
+    let finalText = "";
+
+    for (let round = 0; round < maxToolRounds; round++) {
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+        config: {
+          systemInstruction:
+            "You are a helpful assistant. Use the provided tools when the user asks for a simple problem result, weather, or mood. " +
+            "The tools are demo tools with hardcoded outputs, not real weather or real mood detection. " +
+            "Do not claim these results are live or real-world measurements.",
+          tools: [{ functionDeclarations: declarations }]
+        }
+      });
+
+      const candidate = response.candidates?.[0];
+      const parts = candidate?.content?.parts || [];
+      const functionCalls = parts.filter((part) => part.functionCall?.name);
+
+      if (functionCalls.length === 0) {
+        finalText = response.text || parts.map((part) => part.text || "").join("\n");
+        break;
+      }
+
+      // Add the model's function-call turn to the conversation before tool results.
+      contents.push({ role: "model", parts });
+
+      const resultParts = [];
+      for (const part of functionCalls) {
+        const call = part.functionCall;
+        const toolResult = await mcp.client.callTool({
+          name: call.name,
+          arguments: call.args || {}
+        });
+        const toolText = getTextFromMcpResult(toolResult);
+        functionResponses.push({
+          tool: call.name,
+          arguments: call.args || {},
+          result: toolText
+        });
+        resultParts.push({
+          functionResponse: {
+            name: call.name,
+            response: { result: toolText }
+          }
+        });
+      }
+      contents.push({ role: "user", parts: resultParts });
+    }
+
+    if (!finalText) {
+      finalText = "I called the available tool(s), but could not produce a final response within the tool-call limit.";
+    }
+
+    return res.json({
+      prompt,
+      model,
+      answer: finalText,
+      toolCalls: functionResponses
+    });
+  } catch (error) {
+    console.error("GET /ask failed:", error);
+    return res.status(500).json({
+      error: "The request failed.",
+      details: error?.message || String(error),
+      hint: "Check GEMINI_API_KEY, GEMINI_MODEL availability, network access, and installed package versions."
+    });
+  } finally {
+    if (mcp) {
+      try {
+        await mcp.client.close();
+      } catch {
+        // Ignore cleanup errors after the request has completed.
+      }
+    }
+  }
+});
+
+app.get("/", (_req, res) => {
+  res.type("text").send(
+    "Gemini + MCP demo is running. Try /ask?prompt=What%20is%20the%20weather%20in%20Kathmandu"
+  );
+});
+
+app.listen(port, () => {
+  console.log(`API running at http://localhost:${port}`);
+  console.log(`Gemini model configured as: ${model}`);
+});
+
+
+//  mcp - client 
+
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+console.log("currdir:", currentDir)
+const mcpServerPath = path.join(currentDir, "mcp-server.js");
+console.log("mcpserverpath:" , mcpServerPath)
+
+export async function createMcpClient() {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [mcpServerPath],
+    stderr: "inherit"
+  });
+
+  const client = new Client({
+    name: "gemini-mcp-client",
+    version: "1.0.0"
+  });
+
+  await client.connect(transport);
+  return { client, transport };
+}
+
+
+
+// mcp-server
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const server = new McpServer({
+  name: "simple-demo-tools",
+  version: "1.0.0"
+});
+
+// Tool 1: returns a hardcoded simple problem solution.
+server.tool(
+  "solve_simple_problem",
+  "Return a hardcoded result for a simple arithmetic/problem-solving request. Demo only.",
+  {
+    problem: z.string().optional().describe("The user's simple problem, if provided")
+  },
+  async () => ({
+    content: [{ type: "text", text: "500" }]
+  })
+);
+
+// Tool 2: returns a hardcoded weather response.
+server.tool(
+  "get_weather",
+  "Return the demo weather result. This is hardcoded and is not live weather data.",
+  {
+    location: z.string().optional().describe("Location the user is asking about")
+  },
+  async () => ({
+    content: [{ type: "text", text: "30 degree" }]
+  })
+);
+
+// Tool 3: returns a hardcoded mood response.
+server.tool(
+  "get_mood",
+  "Return the demo mood result. This is hardcoded and does not infer a real person's mood.",
+  {
+    context: z.string().optional().describe("Optional context from the user")
+  },
+  async () => ({
+    content: [{ type: "text", text: "fine" }]
+  })
+);
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+// IMPORTANT: stdio MCP servers must not print logs to stdout; stdout is reserved for MCP messages.
+console.error("Custom MCP server started over stdio.");
+
+
+////////////////////
+new server.js
+
+
+import { GoogleGenAI } from "@google/genai";
+import { config } from "dotenv";
+import { createMcpClient } from "./mcp-client.js";
+
+config();
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
+
+const MODEL = "gemini-3.5-flash";
+
+const systemInstruction = `
+You are a helpful assistant.
+Use the available tools when needed.
+Use actual tool results to answer.
+Never invent tool results.
+`;
+
+export async function llm(prompt) {
+  const mcp = await createMcpClient();
+
+  try {
+    // 1. Discover tools from the MCP server
+    const { tools } = await mcp.client.listTools();
+
+    // 2. Convert MCP tools into Gemini declarations
+    const functionDeclarations = tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description || tool.name,
+      parameters: tool.inputSchema,
+    }));
+
+    // 3. Ask Gemini to answer or request a tool call
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: prompt,
+      config: {
+        systemInstruction,
+        tools: [{ functionDeclarations }],
+      },
+    });
+
+    const functionCalls = response.functionCalls ?? [];
+
+    // 4. If no tool is requested, return Gemini's answer
+    if (functionCalls.length === 0) {
+      return response.text ?? "No response generated.";
+    }
+
+    // 5. Execute the requested MCP tools
+    const toolResults = [];
+
+    for (const call of functionCalls) {
+      const result = await mcp.client.callTool({
+        name: call.name,
+        arguments: call.args ?? {},
+      });
+
+      toolResults.push({
+        name: call.name,
+        result: result.content
+          ?.map((item) => item.text ?? JSON.stringify(item))
+          .join("\n"),
+      });
+    }
+
+    // 6. Ask Gemini to explain the actual tool results
+    const finalResponse = await ai.models.generateContent({
+      model: MODEL,
+      contents: `
+User request:
+${prompt}
+
+Tool results:
+${JSON.stringify(toolResults)}
+
+Answer the user's request using these results.
+`,
+      config: { systemInstruction },
+    });
+
+    return finalResponse.text ?? "No response generated.";
+  } finally {
+    await mcp.client.close();
+  }
+}
+
+// Test
+console.log(await llm("What tools are available to help me?"));
