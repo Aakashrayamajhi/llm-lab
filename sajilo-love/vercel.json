@@ -1,0 +1,1 @@
+{"functions":{"api/token.ts":{"maxDuration":10}},"rewrites":[{"source":"/api/token","destination":"/api/token"},{"source":"/(.*)","destination":"/index.html"}]}
